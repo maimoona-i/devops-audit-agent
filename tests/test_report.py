@@ -33,7 +33,7 @@ def test_valid_finding_is_kept_with_all_fields():
 
 
 def test_severity_and_category_aliases_are_normalised():
-    out = normalize_violations([finding(severity="Moderate", category="GitHub Actions")])
+    out = normalize_violations([finding(rule_id="CI-001", severity="Moderate", category="GitHub Actions")])
     assert out[0]["severity"] == "medium" and out[0]["category"] == "ci_cd"
     assert normalize_violations([finding(severity="???")])[0]["severity"] == "medium"
 
@@ -116,3 +116,19 @@ def test_write_report_refuses_invalid_and_leaves_no_file(tmp_path):
     with pytest.raises(ReportError):
         write_report(target, {"repository": "x", "violations": [{"oops": 1}]})
     assert not target.exists()
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("SEC-001SEVERITY", "SEC-001"), ("sec-1", "SEC-001"), ("CI-002 (high)", "CI-002"),
+    ("SEC001", "SEC-001"), ("REPO-003\nSEVERITY", "REPO-003"),
+])
+def test_rule_id_is_extracted_from_noisy_text(raw, expected):
+    assert normalize_violations([finding(rule_id=raw)])[0]["rule_id"] == expected
+
+
+def test_rule_prefix_decides_category():
+    out = normalize_violations([finding(rule_id="SEC-002", category="ci_cd", file="a"),
+                                finding(rule_id="CI-002", category="security", file="b"),
+                                finding(rule_id="ZZZ-100", category="testing", file="c")])
+    assert {v["rule_id"]: v["category"] for v in out} == {"SEC-002": "security", "CI-002": "ci_cd",
+                                                          "ZZZ-100": "testing"}

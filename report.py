@@ -37,6 +37,8 @@ _CATEGORY_ALIASES = {
 _PREFIX = {"security": "SEC", "repository_hygiene": "REPO", "dependency_management": "DEP",
            "code_quality": "QUAL", "testing": "TEST", "ci_cd": "CI", "configuration": "CFG",
            "collaboration": "COLL", "build_release": "BUILD"}
+_RULE_RX = re.compile(r"([A-Z]{2,6})-?(\d{1,4})")
+_PREFIX_CATEGORY = {prefix: cat for cat, prefix in _PREFIX.items()}
 _SEV_ALIASES = {"moderate": "medium", "major": "high", "minor": "low", "info": "low", "informational": "low",
                 "warning": "medium", "error": "high", "severe": "critical", "blocker": "critical"}
 _NULLISH = {"", "none", "null", "n/a", "na", "-", "unknown"}
@@ -131,11 +133,18 @@ def normalize_violations(raw: Any, root: Path | None = None) -> list[dict[str, A
             total = _line_count(root, file)
             if total is not None and line > total:
                 line = None  # line number does not exist in that file
-        rule_id = re.sub(r"[^A-Z0-9\-]", "", str(item.get("rule_id") or "").strip().upper())
+        raw_id = str(item.get("rule_id") or "").strip().upper()
+        match = _RULE_RX.search(raw_id)
+        if match:  # tolerate junk around the id, e.g. "SEC-001 (severity)"
+            rule_id = f"{match.group(1)}-{int(match.group(2)):03d}"
+        else:
+            rule_id = re.sub(r"[^A-Z0-9\-]", "", raw_id)
         if not rule_id:
             prefix = _PREFIX.get(category, "GEN")
             counters[prefix] = counters.get(prefix, 0) + 1
             rule_id = f"{prefix}-9{counters[prefix]:02d}"
+        # the rule prefix defines the category, so ids and categories can never disagree
+        category = _PREFIX_CATEGORY.get(rule_id.split("-")[0], category)
         key1 = (rule_id, file, line)
         key2 = (file, line, category, description.lower())
         if key1 in seen or key2 in seen:

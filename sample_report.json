@@ -1,0 +1,95 @@
+{
+  "repository": "https://github.com/maimoona-i/devops-audit-testbed",
+  "violations": [
+    {
+      "rule_id": "SEC-001",
+      "category": "security",
+      "severity": "critical",
+      "file": "app.py",
+      "line": 9,
+      "description": "Hard-coded passwords and API tokens are present in application source code.",
+      "evidence": "app.py contains hard-coded DB_PASSWORD and API_TOKEN at lines 9-10.",
+      "recommendation": "Move secrets to environment variables or a secure vault instead of hardcoding them in source code."
+    },
+    {
+      "rule_id": "SEC-003",
+      "category": "security",
+      "severity": "critical",
+      "file": ".github/workflows/ci.yml",
+      "line": 4,
+      "description": "Workflow uses pull_request_target with checkout of PR head SHA and write-all permissions, allowing remote code execution with repository secrets.",
+      "evidence": ".github/workflows/ci.yml uses pull_request_target, checks out ref: ${{ github.event.pull_request.head.sha }}, and has write-all permissions.",
+      "recommendation": "Use pull_request trigger instead of pull_request_target, avoid checking out untrusted PR head commit with write tokens, and apply least-privilege permissions."
+    },
+    {
+      "rule_id": "SEC-004",
+      "category": "security",
+      "severity": "critical",
+      "file": ".env",
+      "line": 1,
+      "description": "A production environment file containing database credentials and secret keys is committed to the repository.",
+      "evidence": ".env contains DATABASE_URL with credentials and SECRET_KEY.",
+      "recommendation": "Remove .env from version control, add it to .gitignore, and revoke/rotate any exposed secrets."
+    },
+    {
+      "rule_id": "CI-002",
+      "category": "ci_cd",
+      "severity": "high",
+      "file": ".github/workflows/ci.yml",
+      "line": 23,
+      "description": "CI test step uses `|| true`, masking test failures and rendering the test gate ineffective.",
+      "evidence": ".github/workflows/ci.yml runs `pytest || true` at line 23.",
+      "recommendation": "Remove `|| true` so that failing tests correctly fail the CI pipeline."
+    },
+    {
+      "rule_id": "SEC-002",
+      "category": "security",
+      "severity": "high",
+      "file": ".github/workflows/ci.yml",
+      "line": 8,
+      "description": "GitHub workflow grants write-all top-level permissions.",
+      "evidence": ".github/workflows/ci.yml sets permissions: write-all at line 8.",
+      "recommendation": "Remove write-all and scope down workflow permissions to only those required (e.g. contents: read)."
+    },
+    {
+      "rule_id": "TEST-002",
+      "category": "testing",
+      "severity": "high",
+      "file": "tests/test_app.py",
+      "line": 4,
+      "description": "Tests are globally skipped or disabled and contain assertions that cannot pass.",
+      "evidence": "tests/test_app.py skips the test and asserts `False`.",
+      "recommendation": "Fix the test implementation and remove unnecessary skips so tests provide valid coverage."
+    },
+    {
+      "rule_id": "CFG-001",
+      "category": "configuration",
+      "severity": "medium",
+      "file": "app.py",
+      "line": 11,
+      "description": "Application configuration contains a machine-specific Windows absolute path.",
+      "evidence": "app.py defines DATA_FILE with an absolute Windows path `C:\\Users\\alice\\Documents\\inventory\\items.csv` at line 11.",
+      "recommendation": "Use relative paths or configurable environment variables instead of hard-coded machine-specific absolute paths."
+    },
+    {
+      "rule_id": "REPO-002",
+      "category": "repository_hygiene",
+      "severity": "medium",
+      "file": ".gitignore",
+      "line": null,
+      "description": "Repository lacks a .gitignore file and has tracked generated, temporary, or local files (.env, debug.log, __pycache__/).",
+      "evidence": "Tracked files include .env, debug.log, and __pycache__/app.cpython-311.pyc, and no .gitignore exists.",
+      "recommendation": "Create a .gitignore file covering environment files, logs, and Python bytecode caches."
+    },
+    {
+      "rule_id": "CI-004",
+      "category": "ci_cd",
+      "severity": "low",
+      "file": ".github/workflows/ci.yml",
+      "line": 17,
+      "description": "Workflow references a third-party action using a mutable branch reference (@main).",
+      "evidence": ".github/workflows/ci.yml uses `uses: some-org/setup-helper@main` at line 17.",
+      "recommendation": "Pin third-party actions to a specific full-length commit SHA or immutable release tag."
+    }
+  ]
+}

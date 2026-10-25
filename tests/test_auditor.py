@@ -62,7 +62,7 @@ def last_tool_text(messages):
 
 
 def make_agent(llm, toolbox, **kw):
-    return AuditAgent(llm, toolbox, "https://github.com/o/r", log=None, **kw)
+    return AuditAgent(llm, toolbox, "https://github.com/o/r", log=None, **{"review": False, **kw})
 
 
 def test_loop_executes_tools_feeds_results_back_and_submits(toolbox):
@@ -215,3 +215,29 @@ def test_extra_content_survives_into_conversation_history(toolbox):
 
     make_agent(FakeLLM(policy), toolbox).run()
     assert seen["assistant"]["tool_calls"][0]["extra_content"] == sig
+
+
+def test_self_review_round_happens_once_and_can_add_findings(toolbox):
+    seen = {}
+
+    def policy(messages, force, n):
+        if n == 1:
+            return submit(viol())
+        if n == 2:
+            seen["review"] = last_tool_text(messages)
+            return call("read_file", path="config.py")
+        return submit(viol(), viol(rule_id="CFG-003", category="configuration", severity="medium", line=2,
+                                   description="Debug mode enabled", evidence="DEBUG = True in config.py"))
+
+    llm = FakeLLM(policy)
+    agent = make_agent(llm, toolbox, review=True)
+    violations = agent.run()
+    assert "self-review" in seen["review"] and "not opened or searched any test" in seen["review"]
+    assert {v["rule_id"] for v in violations} == {"SEC-001", "CFG-003"}
+    assert [e["type"] for e in agent.trace].count("review_requested") == 1
+
+
+def test_second_submission_is_accepted_without_another_review(toolbox):
+    llm = FakeLLM(lambda m, f, n: submit(viol()))
+    violations = make_agent(llm, toolbox, review=True).run()
+    assert llm.calls == 2 and len(violations) == 1

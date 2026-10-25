@@ -56,8 +56,12 @@ flowchart TD
 3. **Execute**: `ToolBox` runs the tool in a read-only sandboxed checkout. Output is size-capped and secret-redacted.
 4. **Interpret**: the result goes back to the model as a new observation. Tool errors are returned as text too, so the
    model can recover (for example by correcting a bad path).
-5. **Report**: the model calls `submit_report` with findings. The code validates the submission and rejects malformed
-   ones, asking the model to fix them.
+5. **Self-review**: the first time the model submits, the code does not accept the report yet. It asks the model to
+   re-check coverage of the main areas (tests, CI triggers, credentials in every file type, linting, configuration,
+   containers, dependencies) and to investigate anything it has not examined, then resubmit. This is one extra
+   round, and the model decides what, if anything, to look at.
+6. **Report**: the final submission is validated by the code, which rejects malformed ones and asks the model to
+   fix them.
 
 Control-flow guarantees implemented in code (not left to the model):
 
@@ -190,6 +194,7 @@ The run is fully unattended: no interactive prompts. Progress is printed to **st
 
 - Every violation has all eight fields. `severity` is one of `critical`, `high`, `medium`, `low`.
 - `file` and `line` are JSON `null` when not applicable (for example a missing README).
+- The rule id's prefix defines the category (`SEC-` security, `CI-` ci_cd, and so on), so they never disagree.
 - `category` is one of: `repository_hygiene`, `dependency_management`, `code_quality`, `testing`, `ci_cd`,
   `security`, `configuration`, `collaboration`, `build_release`.
 - A healthy repository yields `"violations": []`.

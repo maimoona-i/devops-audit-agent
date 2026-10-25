@@ -52,8 +52,8 @@ solid findings over many doubtful ones. Do not pad. Style nitpicks are not viola
 - NEVER write a secret value in any field. Describe it instead ("AWS access key assigned to a string literal").
 
 FINDING FIELDS
-- rule_id: use a catalogue id below when one fits; otherwise invent one with the same prefix and a number >= 100.
-- category: one of {categories}.
+- rule_id: ONLY the id itself, like SEC-001 (letters, hyphen, digits; nothing else). Use a catalogue id below when one fits; otherwise invent one with the same prefix and a number >= 100.
+- category: one of {categories}. The rule prefix decides the category (SEC=security, REPO=repository_hygiene, DEP=dependency_management, QUAL=code_quality, TEST=testing, CI=ci_cd, CFG=configuration, COLL=collaboration, BUILD=build_release). Unsafe workflow permissions, pull_request_target and script injection are SEC findings (category security) even though they live in CI files.
 - severity: one of {severities}.
 - file: repo-relative path using forward slashes, or null if no single file applies. For a missing file, \
 give the path that should exist (e.g. "README.md") or null.
@@ -63,7 +63,7 @@ give the path that should exist (e.g. "README.md") or null.
 - recommendation: a specific, actionable fix.
 
 SEVERITY GUIDE
-critical: live credential or private key committed; remote code execution path in CI (e.g. untrusted PR code \
+critical: live credential, private key or secrets file (.env with passwords/keys) committed; remote code execution path in CI (e.g. untrusted PR code \
 with secrets).  high: write-all/excessive token permissions, pull_request_target + checkout of PR head, CI \
 gates that cannot fail (tests never run, `|| true`, if: false), no tests at all in a code project.  \
 medium: missing lockfile for an application, tracked generated files or .env, no lint/format tooling anywhere, \
@@ -80,7 +80,7 @@ TEST-001 no tests | TEST-002 failing, skipped or disabled tests | TEST-003 CI do
 CI-001 incorrect or missing workflow triggers | CI-002 ineffective gate (continue-on-error, `|| true`, if: false) | \
 CI-003 skipped validation steps | CI-004 mutable action reference
 SEC-001 hard-coded credential | SEC-002 excessive workflow permissions | SEC-003 unsafe pull_request_target / \
-untrusted input injected into scripts | SEC-004 committed private key or secret file
+untrusted input injected into scripts | SEC-004 committed secret file or private key (a tracked .env or key file holding credentials is SEC-004, not REPO-003; do not report the same file twice)
 CFG-001 machine-specific absolute path | CFG-002 committed local settings (IDE, .env.local) | CFG-003 poor \
 environment separation (debug on, prod and dev mixed)
 COLL-001 unsafe PR automation | COLL-002 missing review/contribution guidance where relevant
@@ -101,7 +101,7 @@ SUBMIT_TOOL: dict[str, Any] = {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "rule_id": {"type": "string"},
+                        "rule_id": {"type": "string", "description": "Only the id, e.g. SEC-001."},
                         "category": {"type": "string", "enum": list(CATEGORIES)},
                         "severity": {"type": "string", "enum": list(SEVERITIES)},
                         "file": {"type": ["string", "null"]},
@@ -124,3 +124,21 @@ SUBMIT_TOOL: dict[str, Any] = {
 def initial_user_message(repo_url: str) -> str:
     return (f"Audit this repository for DevOps best-practice violations: {repo_url}\n"
             "It is already cloned (read-only). Start by getting oriented, then investigate.")
+
+
+REVIEW_PROMPT = """\
+Coverage self-review before finalizing. Your findings were received but NOT yet accepted. Check whether you \
+have actually examined each area below. If something is uncovered, investigate it now with the tools. \
+Only add findings you can prove with tool output; do not add doubtful ones. Then call submit_report again with \
+the complete final list (it can be identical if nothing changes).
+- Tests: do test files exist, and did you open them? Look for skipped/disabled tests, assertions that can never \
+pass, empty tests, and whether CI actually runs them.
+- CI triggers: do the workflow triggers and branch filters match how the repo is really used (default branch, \
+pull requests)? Does CI run tests, linting and build/validate anything shipped (package, Docker image)?
+- Credentials everywhere: passwords, tokens and keys in config, env, YAML, Docker and script files, not only in \
+source code. A committed secrets file is a security finding.
+- Linting/formatting: is any tooling configured anywhere (config files, pre-commit, CI step)?
+- Configuration: debug flags enabled, dev/prod values mixed, machine-specific absolute paths.
+- Containers and builds: base image pinning, running as root, build validation.
+- Dependencies: consistency between manifests, unpinned or weak constraints, missing lockfile for an application.
+{hints}"""

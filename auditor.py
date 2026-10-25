@@ -14,7 +14,7 @@ from collections import Counter
 from typing import Any, Callable
 
 from llm import LLMClient
-from prompts import SUBMIT_TOOL, SYSTEM_PROMPT, initial_user_message
+from prompts import REVIEW_PROMPT, SUBMIT_TOOL, SYSTEM_PROMPT, initial_user_message
 from report import ReportError, normalize_violations
 from tools import ToolBox, redact
 
@@ -40,7 +40,7 @@ def _short(value: Any, limit: int = 160) -> str:
 
 class AuditAgent:
     def __init__(self, llm: LLMClient, toolbox: ToolBox, repo_url: str, max_steps: int = 30,
-                 max_seconds: float = 600.0, log: Callable[[str], None] | None = stderr_log):
+                 max_seconds: float = 600.0, log: Callable[[str], None] | None = stderr_log, review: bool = True):
         self.llm = llm
         self.toolbox = toolbox
         self.repo_url = repo_url
@@ -49,6 +49,8 @@ class AuditAgent:
         self._log = log or (lambda _msg: None)
         self.trace: list[dict[str, Any]] = []
         self.summary: str = ""
+        self.review = review
+        self._reviewed = False
 
     # ------------------------------------------------------------------ public
     def run(self) -> list[dict[str, Any]]:
@@ -110,6 +112,13 @@ class AuditAgent:
                         results.append({"id": call.id, "name": call.name, "is_error": True,
                                         "content": f"submit_report rejected: {exc} Fix it and call submit_report again."})
                         continue
+                    if self.review and not self._reviewed and not forced and step < self.max_steps - 2:
+                        self._reviewed = True  # one self-review round: model re-checks coverage, then resubmits
+                        self._log(f"[step {step}] self-review requested before accepting the report")
+                        self.trace.append({"step": step, "type": "review_requested"})
+                        results.append({"id": call.id, "name": call.name, "is_error": False,
+                                        "content": REVIEW_PROMPT.replace("{hints}", self._review_hints())})
+                        continue
                     return violations
                 results.append(self._execute(call, step))
             messages.append({"role": "tool_results", "results": results})
@@ -119,6 +128,15 @@ class AuditAgent:
         return {"tool_calls": len(calls), "tools_used": dict(Counter(calls))}
 
     # ----------------------------------------------------------------- helpers
+    def _review_hints(self) -> str:
+        """Facts from this run's own trace that make the self-review more pointed."""
+        calls = [e for e in self.trace if e["type"] == "tool_call"]
+        seen = " ".join(json.dumps(e.get("arguments", {})).lower() for e in calls)
+        hints = []
+        if "test" not in seen:
+            hints.append("Note: so far you have not opened or searched any test files.")
+        return "\n".join(hints)
+
     def _execute(self, call: Any, step: int) -> dict[str, Any]:
         self._log(f"[step {step}] tool: {call.name}({_short(call.arguments)})")
         text, is_error = self.toolbox.call(call.name, call.arguments)
