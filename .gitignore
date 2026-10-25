@@ -1,0 +1,23 @@
+# Secrets and local settings
+.env
+.venv/
+venv/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Editor / OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Local agent output (sample_report.json is intentionally committed)
+report.json
+report.trace.json
+*.tmp
