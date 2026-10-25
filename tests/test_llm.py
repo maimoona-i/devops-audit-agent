@@ -92,3 +92,33 @@ def test_auth_errors_are_not_retried_and_give_a_hint():
     with pytest.raises(LLMError, match="API key"):
         with_retries(fn, sleep=lambda _s: None)
     assert calls["n"] == 1
+
+
+def test_timeout_is_configurable_and_validated():
+    client = make_llm(env={"OPENAI_API_KEY": "k", "LLM_TIMEOUT": "240"})
+    assert client._client.timeout == 240.0
+    with pytest.raises(LLMError, match="LLM_TIMEOUT"):
+        make_llm(env={"OPENAI_API_KEY": "k", "LLM_TIMEOUT": "soon"})
+
+
+SIGNATURE = {"google": {"thought_signature": "opaque-signature-123"}}
+
+
+def test_gemini_thought_signature_is_sent_back_unchanged():
+    msgs = [{"role": "assistant", "text": "", "tool_calls": [
+        {"id": "c1", "name": "list_files", "arguments": {}, "extra_content": SIGNATURE},
+        {"id": "c2", "name": "git_log", "arguments": {}}]}]
+    calls = to_openai_messages("s", msgs)[1]["tool_calls"]
+    assert calls[0]["extra_content"] == SIGNATURE
+    assert "extra_content" not in calls[1]
+
+
+def test_openai_client_captures_extra_content_from_response():
+    from types import SimpleNamespace as NS
+
+    client = make_llm(env={"OPENAI_API_KEY": "k"})
+    tool_call = NS(id="c1", function=NS(name="list_files", arguments="{}"), extra_content=SIGNATURE)
+    reply = NS(choices=[NS(message=NS(content="", tool_calls=[tool_call]))])
+    client._client.chat.completions.create = lambda **kw: reply
+    out = client.complete("sys", [{"role": "user", "content": "hi"}], [])
+    assert out.tool_calls[0].extra_content == SIGNATURE

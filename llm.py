@@ -35,6 +35,8 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    # Provider-specific data that must be echoed back unchanged (Gemini "thought signatures").
+    extra_content: dict[str, Any] | None = None
 
 
 @dataclass
@@ -123,9 +125,13 @@ def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict
             msg: dict[str, Any] = {"role": "assistant", "content": m.get("text") or None}
             calls = m.get("tool_calls", [])
             if calls:
-                msg["tool_calls"] = [{"id": c["id"], "type": "function",
-                                      "function": {"name": c["name"], "arguments": json.dumps(c["arguments"])}}
-                                     for c in calls]
+                msg["tool_calls"] = []
+                for c in calls:
+                    entry: dict[str, Any] = {"id": c["id"], "type": "function",
+                                             "function": {"name": c["name"], "arguments": json.dumps(c["arguments"])}}
+                    if c.get("extra_content"):
+                        entry["extra_content"] = c["extra_content"]
+                    msg["tool_calls"].append(entry)
             elif not msg["content"]:
                 msg["content"] = "(no output)"
             out.append(msg)
@@ -137,16 +143,26 @@ def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict
     return out
 
 
+def _extra_content(tool_call: Any) -> dict[str, Any] | None:
+    """Vendor extension on a tool call (Gemini puts its thought signature in ``extra_content``)."""
+    extra = getattr(tool_call, "extra_content", None)
+    if extra is None:
+        extra = (getattr(tool_call, "model_extra", None) or {}).get("extra_content")
+    if extra is not None and hasattr(extra, "model_dump"):
+        extra = extra.model_dump()
+    return extra if isinstance(extra, dict) and extra else None
+
+
 # --------------------------------------------------------------------------- #
 # Providers
 # --------------------------------------------------------------------------- #
 class AnthropicClient:
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, timeout: float = REQUEST_TIMEOUT):
         try:
             import anthropic
         except ImportError:
             raise LLMError("The 'anthropic' package is not installed. Run: pip install -r requirements.txt") from None
-        self._client = anthropic.Anthropic(api_key=api_key, timeout=REQUEST_TIMEOUT, max_retries=0)
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=0)
         self.model = model
 
     def complete(self, system, messages, tools, force_tool=None) -> LLMResponse:
@@ -176,13 +192,14 @@ class AnthropicClient:
 class OpenAIClient:
     """Works with OpenAI and any OpenAI-compatible endpoint (set OPENAI_BASE_URL)."""
 
-    def __init__(self, api_key: str, model: str, base_url: str | None = None):
+    def __init__(self, api_key: str, model: str, base_url: str | None = None,
+                 timeout: float = REQUEST_TIMEOUT):
         try:
             import openai
         except ImportError:
             raise LLMError("The 'openai' package is not installed. Run: pip install -r requirements.txt") from None
         self._client = openai.OpenAI(api_key=api_key, base_url=base_url or None,
-                                     timeout=REQUEST_TIMEOUT, max_retries=0)
+                                     timeout=timeout, max_retries=0)
         self.model = model
 
     def complete(self, system, messages, tools, force_tool=None) -> LLMResponse:
@@ -205,7 +222,8 @@ class OpenAIClient:
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
-            calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args if isinstance(args, dict) else {}))
+            calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args if isinstance(args, dict) else {},
+                                  extra_content=_extra_content(tc)))
         return LLMResponse(text=(msg.content or "").strip(), tool_calls=calls)
 
 
@@ -236,6 +254,10 @@ def make_llm(provider: str | None = None, model: str | None = None,
     api_key = get(key_name)
     if not api_key:
         raise LLMError(f"{key_name} is not set (provider={provider}). Copy .env.example to .env and fill it in.")
+    try:
+        timeout = float(get("LLM_TIMEOUT") or REQUEST_TIMEOUT)
+    except ValueError:
+        raise LLMError("LLM_TIMEOUT must be a number of seconds, e.g. 180.") from None
     if provider == "anthropic":
-        return AnthropicClient(api_key, model)
-    return OpenAIClient(api_key, model, base_url=get("OPENAI_BASE_URL") or None)
+        return AnthropicClient(api_key, model, timeout=timeout)
+    return OpenAIClient(api_key, model, base_url=get("OPENAI_BASE_URL") or None, timeout=timeout)

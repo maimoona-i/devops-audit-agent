@@ -80,7 +80,9 @@ class AuditAgent:
             messages.append({
                 "role": "assistant",
                 "text": response.text,
-                "tool_calls": [{"id": c.id, "name": c.name, "arguments": c.arguments} for c in response.tool_calls],
+                "tool_calls": [{"id": c.id, "name": c.name, "arguments": c.arguments,
+                                **({"extra_content": c.extra_content} if c.extra_content else {})}
+                               for c in response.tool_calls],
             })
             if response.text:
                 thought = redact(response.text)

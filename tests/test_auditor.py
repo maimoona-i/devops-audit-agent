@@ -201,3 +201,17 @@ def test_old_tool_results_are_trimmed_to_bound_context(toolbox):
     AuditAgent._trim_old_results(messages)
     lengths = [len(m["results"][0]["content"]) for m in messages]
     assert lengths[0] < 1500 and lengths[-1] == 5000
+
+
+def test_extra_content_survives_into_conversation_history(toolbox):
+    sig = {"google": {"thought_signature": "abc"}}
+    seen = {}
+
+    def policy(messages, force, n):
+        if n == 1:
+            return LLMResponse(tool_calls=[ToolCall("c1", "list_files", {}, extra_content=sig)])
+        seen["assistant"] = [m for m in messages if m["role"] == "assistant"][0]
+        return submit()
+
+    make_agent(FakeLLM(policy), toolbox).run()
+    assert seen["assistant"]["tool_calls"][0]["extra_content"] == sig
